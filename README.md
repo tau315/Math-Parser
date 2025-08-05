@@ -1,2 +1,21 @@
 # Math-Symbol-Classifier
-CNN based machine learning model used to classify a variety of math symbols made in TensorFlow
+
+A lightweight modular math OCR pipeline that processes scanned equations and reconstructs them into LaTeX.
+
+## Modules
+1. **Symbol Classifier** (CNN-based)
+2. **Line-level Symbol Segmentation**
+3. **Page-level Line Segmentation**
+
+## Setup
+```bash
+git clone https://github.com/yourusername/math-ocr.git
+cd math-ocr
+pip install -r requirements.txt
+```
+
+Folder Structure
+- `data/`: Store your raw, processed, and synthetic images
+- `models/`: Trained model checkpoints
+- `src/`: All source code modules
+

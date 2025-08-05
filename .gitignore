@@ -1,0 +1,28 @@
+```gitignore
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.so
+*.ipynb_checkpoints
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Model checkpoints
+models/*.h5
+models/*.pt
+models/*.ckpt
+
+# Jupyter notebook logs
+.ipynb_checkpoints
+
+# Data files
+data/raw/
+data/processed/
+data/synthetic/
+
+# OS metadata
+.DS_Store
+Thumbs.db
