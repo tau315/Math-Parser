@@ -19,9 +19,7 @@ models/*.ckpt
 .ipynb_checkpoints
 
 # Data files
-data/raw/
-data/processed/
-data/synthetic/
+data/classify/
 
 # OS metadata
 .DS_Store

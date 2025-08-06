@@ -23,3 +23,13 @@ Folder Structure
 - `models/`: Trained model checkpoints
 - `src/`: All source code modules
 
+To download HASYv2 dataset:
+```python
+import kagglehub
+
+# Download latest version
+path = kagglehub.dataset_download("guru001/hasyv2")
+
+print("Path to dataset files:", path)
+```
+Then move files as needed.
