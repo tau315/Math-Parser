@@ -4,8 +4,7 @@ A lightweight modular math OCR pipeline that processes scanned equations and rec
 
 ## Modules
 1. **Symbol Classifier** (CNN-based)
-2. **Line-level Symbol Segmentation**
-3. **Page-level Line Segmentation**
+2. **Symbol Segmentation**
 
 ## Datasets
 For symbol classification training, we use the [HASYv2 dataset](https://www.kaggle.com/datasets/guru001/hasyv2?select=symbols.csv).
