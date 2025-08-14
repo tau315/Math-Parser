@@ -3,6 +3,14 @@ from tensorflow.keras import layers, models, regularizers
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+import os
+
+
+# ==== Config ====
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_ROOT = os.path.join(BASE_DIR, "..", "..", "data", "classify")
+HASY_ROOT = os.path.join(DATA_ROOT, "hasyv2")  # folder with subfolders per symbol class
+SAVE_ROOT = os.path.join(BASE_DIR, "..", "..", "models")
 
 # ------------------------
 # Model
@@ -112,77 +120,100 @@ def visualize_bboxes_binary(image, bboxes):
         cv2.rectangle(img_rgb, (x,y), (x+w,y+h), (0,255,0), 2)
     return img_rgb
 
-def generate_training_image(data, canvas_height=64, canvas_width=256, max_symbols=8, rotation_range=15, scale_range=(0.7, 1.3)):
+# ------------------------
+# Load individual HASYv2 symbols from folder structure
+# ------------------------
+def load_hasyv2_symbols(img_size=32):
     """
-    data: list or array of individual 32x32 grayscale symbols (values 0-1)
-    canvas_height, canvas_width: size of the generated image
-    max_symbols: maximum symbols per line
-    rotation_range: max rotation in degrees for each symbol
-    scale_range: tuple (min_scale, max_scale) for resizing each symbol
-    Returns: (image, mask) as tf.Tensors
+    Reads all symbol images from HASYv2 folder structure
+    Returns list of grayscale symbols normalized [0,1]
     """
+    symbols = []
+    for class_folder in os.listdir(HASY_ROOT):
+        folder_path = os.path.join(HASY_ROOT, class_folder)
+        if not os.path.isdir(folder_path):
+            continue
+        for fname in os.listdir(folder_path):
+            if fname.endswith(".png"):
+                img_path = os.path.join(folder_path, fname)
+                img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+                img = cv2.resize(img, (img_size, img_size))
+                img = img.astype(np.float32) / 255.0
+                symbols.append(img)
+    print(f"[INFO] Loaded {len(symbols)} HASYv2 symbols.")
+    return symbols
+
+# ------------------------
+# Generate synthetic page
+# ------------------------
+def generate_page(symbols, canvas_height=128, canvas_width=512,
+                  max_symbols_per_line=10, rotation_range=15, scale_range=(0.7,1.3)):
     canvas = np.zeros((canvas_height, canvas_width), dtype=np.float32)
     mask = np.zeros((canvas_height, canvas_width), dtype=np.float32)
 
-    x_offset = 0
-    symbols_in_line = np.random.randint(1, max_symbols+1)
+    y_offset = 0
+    while y_offset < canvas_height - 32:
+        x_offset = 0
+        symbols_in_line = np.random.randint(1, max_symbols_per_line + 1)
+        for _ in range(symbols_in_line):
+            sym = symbols[np.random.randint(len(symbols))]
+            scale = np.random.uniform(scale_range[0], scale_range[1])
+            new_size = max(1, int(32 * scale))
+            sym_scaled = cv2.resize(sym, (new_size, new_size))
+            M = cv2.getRotationMatrix2D((new_size//2,new_size//2), np.random.uniform(-rotation_range, rotation_range), 1.0)
+            sym_rot = cv2.warpAffine(sym_scaled, M, (new_size, new_size), borderValue=0)
 
-    for i in range(symbols_in_line):
-        # pick a random symbol
-        sym = data[np.random.randint(len(data))]
+            y_pos = y_offset + np.random.randint(0, max(1, canvas_height - y_offset - new_size))
+            x_pos = x_offset + np.random.randint(0, 5)
+            if x_pos + new_size > canvas_width:
+                break
 
-        # random scaling
-        scale = np.random.uniform(scale_range[0], scale_range[1])
-        new_size = max(1, int(32 * scale))
-        sym_scaled = cv2.resize(sym, (new_size, new_size), interpolation=cv2.INTER_LINEAR)
+            canvas[y_pos:y_pos+new_size, x_pos:x_pos+new_size] = np.maximum(
+                canvas[y_pos:y_pos+new_size, x_pos:x_pos+new_size], sym_rot)
+            mask[y_pos:y_pos+new_size, x_pos:x_pos+new_size] = np.maximum(
+                mask[y_pos:y_pos+new_size, x_pos:x_pos+new_size], (sym_rot > 0).astype(np.float32))
 
-        # random rotation
-        M = cv2.getRotationMatrix2D((new_size//2, new_size//2), np.random.uniform(-rotation_range, rotation_range), 1.0)
-        sym_rot = cv2.warpAffine(sym_scaled, M, (new_size, new_size), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            x_offset = x_pos + new_size
+        y_offset += 32 + np.random.randint(0,5)
 
-        # random vertical offset
-        y_offset = np.random.randint(0, max(1, canvas_height - new_size))
-        x_offset_pad = x_offset + np.random.randint(0, 5)  # small random spacing
+    return tf.convert_to_tensor(canvas[..., np.newaxis], dtype=tf.float32), \
+           tf.convert_to_tensor(mask[..., np.newaxis], dtype=tf.float32)
 
-        if x_offset_pad + new_size > canvas_width:
-            break  # stop if exceeds canvas width
+# ------------------------
+# Generate dataset from HASYv2
+# ------------------------
+def generate_dataset(symbols, num_pages=100, canvas_height=128, canvas_width=512):
+    images, masks = [], []
+    for _ in range(num_pages):
+        img, msk = generate_page(symbols, canvas_height, canvas_width)
+        images.append(img)
+        masks.append(msk)
+    images = tf.stack(images)
+    masks = tf.stack(masks)
+    return images, masks
 
-        # paste onto canvas and mask
-        canvas[y_offset:y_offset+new_size, x_offset_pad:x_offset_pad+new_size] = np.maximum(canvas[y_offset:y_offset+new_size, x_offset_pad:x_offset_pad+new_size], sym_rot)
-        mask[y_offset:y_offset+new_size, x_offset_pad:x_offset_pad+new_size] = np.maximum(mask[y_offset:y_offset+new_size, x_offset_pad:x_offset_pad+new_size], (sym_rot > 0).astype(np.float32))
+# ------------------------
+# Train UNet on synthetic pages
+# ------------------------
+def train_unet_on_hasyv2(num_pages=200, canvas_height=128, canvas_width=512, batch_size=8, epochs=5):
+    symbols = load_hasyv2_symbols()
+    images, masks = generate_dataset(symbols, num_pages, canvas_height, canvas_width)
+    dataset = tf.data.Dataset.from_tensor_slices((images, masks))
+    dataset = dataset.shuffle(100).batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
-        x_offset = x_offset_pad + new_size  # move x for next symbol
-
-    # convert to tf.Tensor and add channel dim
-    canvas_tf = tf.convert_to_tensor(canvas[..., np.newaxis], dtype=tf.float32)
-    mask_tf = tf.convert_to_tensor(mask[..., np.newaxis], dtype=tf.float32)
-
-    return canvas_tf, mask_tf
-
-def synthetic_dataset(data, batch_size=8, canvas_height=64, canvas_width=256, max_symbols=8):
-    """
-    Creates a TensorFlow dataset yielding (image, mask) batches for training.
-    """
-    def gen():
-        while True:
-            img, mask = generate_training_image(
-                data, 
-                canvas_height=canvas_height, 
-                canvas_width=canvas_width, 
-                max_symbols=max_symbols
-            )
-            yield img, mask
-    
-    ds = tf.data.Dataset.from_generator(
-        gen,
-        output_signature=(
-            tf.TensorSpec(shape=(canvas_height, canvas_width, 1), dtype=tf.float32),
-            tf.TensorSpec(shape=(canvas_height, canvas_width, 1), dtype=tf.float32)
-        )
-    )
-    ds = ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
-    return ds
+    unet = build_unet_gray_binary()
+    unet.compile(optimizer='adam', loss=combined_loss)
+    unet.fit(dataset, epochs=epochs)
+    return unet
 
 if __name__ == "__main__":
-    
+    # Train UNet on 200 synthetic pages, 128x512, batch size 8, for 5 epochs
+    unet_model = train_unet_on_hasyv2(
+        num_pages=200, 
+        canvas_height=128, 
+        canvas_width=512, 
+        batch_size=8, 
+        epochs=5
+    )
+    unet_model.save(os.path.join(SAVE_ROOT, "unet_hasyv2.h5"))
     pass
