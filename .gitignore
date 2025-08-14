@@ -11,9 +11,7 @@ env/
 venv/
 
 # Model checkpoints
-models/*.h5
-models/*.pt
-models/*.ckpt
+models/*
 
 # Jupyter notebook logs
 .ipynb_checkpoints

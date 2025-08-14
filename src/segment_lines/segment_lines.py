@@ -148,7 +148,8 @@ def load_hasyv2_symbols(img_size=32):
 # ------------------------
 def generate_page(symbols, canvas_height=128, canvas_width=512,
                   max_symbols_per_line=10, rotation_range=15, scale_range=(0.7,1.3)):
-    canvas = np.zeros((canvas_height, canvas_width), dtype=np.float32)
+    # Start with white background
+    canvas = np.ones((canvas_height, canvas_width), dtype=np.float32)
     mask = np.zeros((canvas_height, canvas_width), dtype=np.float32)
 
     y_offset = 0
@@ -168,16 +169,20 @@ def generate_page(symbols, canvas_height=128, canvas_width=512,
             if x_pos + new_size > canvas_width:
                 break
 
-            canvas[y_pos:y_pos+new_size, x_pos:x_pos+new_size] = np.maximum(
-                canvas[y_pos:y_pos+new_size, x_pos:x_pos+new_size], sym_rot)
+            # Invert symbol: make it dark on white background
+            canvas[y_pos:y_pos+new_size, x_pos:x_pos+new_size] = np.minimum(
+                canvas[y_pos:y_pos+new_size, x_pos:x_pos+new_size], 1.0 - sym_rot
+            )
             mask[y_pos:y_pos+new_size, x_pos:x_pos+new_size] = np.maximum(
-                mask[y_pos:y_pos+new_size, x_pos:x_pos+new_size], (sym_rot > 0).astype(np.float32))
+                mask[y_pos:y_pos+new_size, x_pos:x_pos+new_size], (sym_rot > 0).astype(np.float32)
+            )
 
             x_offset = x_pos + new_size
         y_offset += 32 + np.random.randint(0,5)
 
     return tf.convert_to_tensor(canvas[..., np.newaxis], dtype=tf.float32), \
            tf.convert_to_tensor(mask[..., np.newaxis], dtype=tf.float32)
+
 
 # ------------------------
 # Generate dataset from HASYv2
@@ -206,6 +211,46 @@ def train_unet_on_hasyv2(num_pages=200, canvas_height=128, canvas_width=512, bat
     unet.fit(dataset, epochs=epochs)
     return unet
 
+# ------------------------
+# Visualize prediction
+# ------------------------
+def predict_and_visualize_page(unet_model, page_idx=0, canvas_height=128, canvas_width=512):
+    """
+    Generates a page, runs the UNet on it, saves:
+    1. original page
+    2. predicted mask
+    3. page with bounding boxes
+    """
+    symbols = load_hasyv2_symbols()
+    page_img, page_mask = generate_page(symbols, canvas_height, canvas_width)
+
+    # Save original page
+    orig_path = os.path.join(SAVE_ROOT, f"page_{page_idx}_orig.png")
+    plt.imsave(orig_path, tf.squeeze(page_img), cmap='gray')
+
+    # Pad for UNet
+    padded, pad_hw = pad_to_multiple(page_img[tf.newaxis, ...])  # add batch dim
+    pred_mask = unet_model.predict(padded)
+    pred_mask = unpad(pred_mask, pad_hw)
+    pred_mask = tf.squeeze(pred_mask)
+
+    # Save predicted mask
+    mask_path = os.path.join(SAVE_ROOT, f"page_{page_idx}_mask.png")
+    plt.imsave(mask_path, pred_mask, cmap='gray')
+
+    # Extract boxes and draw
+    bboxes = extract_bboxes_binary(pred_mask)
+    boxed_img = visualize_bboxes_binary(page_img, bboxes)
+
+    # Save boxed image
+    boxed_path = os.path.join(SAVE_ROOT, f"page_{page_idx}_boxed.png")
+    cv2.imwrite(boxed_path, boxed_img)
+
+    print(f"[INFO] Saved original page, mask, and boxed image to {SAVE_ROOT}")
+    return orig_path, mask_path, boxed_path
+
+
+
 if __name__ == "__main__":
     # Train UNet on 200 synthetic pages, 128x512, batch size 8, for 5 epochs
     unet_model = train_unet_on_hasyv2(
@@ -216,4 +261,5 @@ if __name__ == "__main__":
         epochs=5
     )
     unet_model.save(os.path.join(SAVE_ROOT, "unet_hasyv2.h5"))
+    predict_and_visualize_page(unet_model, page_idx=0)
     pass
