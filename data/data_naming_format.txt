@@ -1,2 +1,0 @@
-Data files are named in the following format:
-lorem ipsum
