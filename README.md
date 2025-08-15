@@ -1,4 +1,4 @@
-# Math-Symbol-Classifier
+# Math-Parser
 
 A lightweight modular math OCR pipeline that processes scanned equations and reconstructs them into LaTeX.
 
